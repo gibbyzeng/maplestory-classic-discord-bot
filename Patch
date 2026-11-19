@@ -1,0 +1,51 @@
+
+import os
+import json
+import requests
+from bs4 import BeautifulSoup
+
+URL = "https://www.nexon.com/maplestory/news/all?page=1&gameVersion=mscw"
+WEBHOOK = os.environ["DISCORD_WEBHOOK"]
+SEEN_FILE = "seen.json"
+
+def main():
+    response = requests.get(URL, timeout=30)
+    response.raise_for_status()
+
+    soup = BeautifulSoup(response.text, "html.parser")
+    seen = set(json.load(open(SEEN_FILE))) if os.path.exists(SEEN_FILE) else set()
+
+    found = []
+
+    for link in soup.select("a[href]"):
+        title = link.get_text(" ", strip=True)
+        href = link.get("href", "")
+
+        if not title or "maplestory" in title.lower():
+            continue
+
+        if not any(word in title.lower() for word in
+                   ["patch", "maintenance", "update", "notice", "event"]):
+            continue
+
+        if href.startswith("/"):
+            href = "https://www.nexon.com" + href
+
+        if href.startswith("http") and href not in seen:
+            found.append({"title": title, "url": href})
+
+    for item in found:
+        requests.post(WEBHOOK, json={
+            "embeds": [{
+                "title": item["title"][:256],
+                "url": item["url"],
+                "description": "New MapleStory Classic World announcement!"
+            }]
+        }, timeout=20).raise_for_status()
+        seen.add(item["url"])
+
+    with open(SEEN_FILE, "w") as f:
+        json.dump(sorted(seen), f)
+
+if __name__ == "__main__":
+    main()
